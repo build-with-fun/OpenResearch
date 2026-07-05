@@ -173,7 +173,7 @@ This snapshot references the MIT license in badges; please add a `LICENSE` file 
 
 ## Web UI (Next.js)
 
-<img src="image.png" alt="image" style="width=30%">
+<img src="image.png" alt="image">
 
 A minimal black-and-white Next.js web UI is included in `webui/`.
 
