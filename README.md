@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="OpenResearch.png" alt="OpenResearch" width="320">
+  <img src="OpenResearch.png" alt="OpenResearch">
 </p>
 
 # OpenResearch
