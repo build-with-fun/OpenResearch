@@ -1,5 +1,5 @@
-# Tools module
-from tools.web_scrapper import AdvancedWebScraper, get_raw_web_data
+# Tools module (legacy — prefer src/agent/tools/ for new code)
+from src.agent.tools.scraper import AdvancedWebScraper, get_raw_web_data
 
 __all__ = [
     "AdvancedWebScraper",

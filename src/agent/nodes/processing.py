@@ -1,17 +1,25 @@
 import time
 import hashlib
+import logging
 from typing import Dict, List
 from langchain_core.messages import HumanMessage, SystemMessage
 from src.agent.core.state import ResearchState
-from src.agent.core.llm import get_llm, CHUNK_SIZE, CHUNK_OVERLAP, MAX_CHUNKS
+from src.agent.core.llm import get_llm, extract_json_from_response, get_depth_profile
+
+logger = logging.getLogger(__name__)
+
 
 def chunking_node(state: ResearchState) -> Dict:
-    """
-    CHUNKING NODE: Split all scraped content into manageable chunks.
-    """
-    print("\n" + "="*80)
-    print("[PHASE 4] CHUNKING - Splitting content into segments")
-    print("="*80)
+    """CHUNKING NODE: Split all scraped content into manageable chunks."""
+    depth = state.get("research_depth", "standard")
+    profile = get_depth_profile(depth)
+    chunk_size = profile["chunk_size"]
+    chunk_overlap = profile.get("chunk_overlap", chunk_size // 5)
+    max_chunks = profile["max_chunks"]
+
+    logger.info("=" * 60)
+    logger.info("[CHUNKING] Splitting content [size=%d, overlap=%d, max=%d]", chunk_size, chunk_overlap, max_chunks)
+    logger.info("=" * 60)
 
     start_time = time.time()
 
@@ -23,14 +31,12 @@ def chunking_node(state: ResearchState) -> Dict:
         if not content:
             continue
 
-        # Split content into overlapping chunks
         content_chunks = []
-        for i in range(0, len(content), CHUNK_SIZE - CHUNK_OVERLAP):
-            chunk = content[i:i + CHUNK_SIZE]
-            if len(chunk) > 100:  # Minimum chunk size
+        for i in range(0, len(content), chunk_size - chunk_overlap):
+            chunk = content[i:i + chunk_size]
+            if len(chunk) > 100:
                 content_chunks.append(chunk)
 
-        # Add metadata to each chunk
         for chunk_idx, chunk in enumerate(content_chunks):
             chunks.append({
                 "content": chunk,
@@ -43,9 +49,14 @@ def chunking_node(state: ResearchState) -> Dict:
                 "content_hash": hashlib.sha256(chunk.encode()).hexdigest(),
             })
 
+            if len(chunks) >= max_chunks:
+                break
+        if len(chunks) >= max_chunks:
+            break
+
     elapsed = time.time() - start_time
 
-    print(f"[OK] Created {len(chunks)} chunks from {len(search_results)} sources in {elapsed:.2f}s")
+    logger.info("[CHUNKING] Created %d chunks from %d sources in %.2fs", len(chunks), len(search_results), elapsed)
 
     timestamps = state.get("timestamps", {})
     timestamps["chunking"] = elapsed
@@ -56,15 +67,16 @@ def chunking_node(state: ResearchState) -> Dict:
         "timestamps": timestamps,
     }
 
+
 def ranking_node(state: ResearchState) -> Dict:
-    """
-    RANKING NODE: Rank and filter chunks using a two-stage approach.
-    Stage 1: Fast keyword match.
-    Stage 2: Advanced LLM-based reranking.
-    """
-    print("\n" + "="*80)
-    print("[PHASE 5] RANKING - Multi-stage relevance scoring")
-    print("="*80)
+    """RANKING NODE: Rank and filter chunks using two-stage approach."""
+    depth = state.get("research_depth", "standard")
+    profile = get_depth_profile(depth)
+    max_chunks = profile["max_chunks"]
+
+    logger.info("=" * 60)
+    logger.info("[RANKING] Multi-stage relevance scoring [depth=%s]", depth)
+    logger.info("=" * 60)
 
     start_time = time.time()
 
@@ -74,9 +86,9 @@ def ranking_node(state: ResearchState) -> Dict:
     if not chunks:
         return {"ranked_chunks": [], "status": "ranking_complete", "timestamps": {}}
 
-    print(f"Ranking {len(chunks)} chunks...")
+    logger.info("Ranking %d chunks...", len(chunks))
 
-    # --- Stage 1: Fast Keyword Matching ---
+    # Stage 1: Fast Keyword Matching
     scored_chunks = []
     for chunk in chunks:
         content = chunk["content"].lower()
@@ -89,18 +101,16 @@ def ranking_node(state: ResearchState) -> Dict:
         scored_chunks.append(chunk)
 
     scored_chunks.sort(key=lambda x: x["relevance_score"], reverse=True)
-    top_candidates = scored_chunks[:100] # Take top 100 for reranking
+    top_for_rerank = min(100, max_chunks)
+    top_candidates = scored_chunks[:top_for_rerank]
 
-    # --- Stage 2: LLM-based Reranking (Cross-Encoder Proxy) ---
-    print(f"Reranking top 100 candidates using LLM...")
+    # Stage 2: LLM-based Reranking
+    logger.info("Reranking top %d candidates using LLM...", len(top_candidates))
     llm = get_llm()
-    final_ranked = []
 
-    # Process in batches to avoid too many LLM calls
     batch_size = 10
     for i in range(0, len(top_candidates), batch_size):
-        batch = top_candidates[i:i+batch_size]
-
+        batch = top_candidates[i:i + batch_size]
         batch_text = "\n\n".join([f"ID {j}: {c['content'][:500]}" for j, c in enumerate(batch)])
 
         system_prompt = """You are a relevance judge. Rate how relevant the provided chunks are to the user's query.
@@ -112,26 +122,18 @@ def ranking_node(state: ResearchState) -> Dict:
             HumanMessage(content=f"Query: {user_query}\n\nChunks:\n{batch_text}")
         ])
 
-        import json
-        try:
-            # Basic JSON extraction
-            content = response.content
-            if "{" in content:
-                start = content.index("{")
-                end = content.rindex("}") + 1
-                scores = json.loads(content[start:end]).get("scores", [])
-                for idx, score in enumerate(scores):
-                    if idx < len(batch):
-                        batch[idx]["relevance_score"] = score
-        except Exception as e:
-            print(f"  Reranking error in batch: {e}")
+        parsed = extract_json_from_response(response.content)
+        scores = parsed.get("scores", [])
+        for idx, score in enumerate(scores):
+            if idx < len(batch):
+                batch[idx]["relevance_score"] = score
 
     # Final sort and filter
     top_candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
-    ranked_chunks = top_candidates[:MAX_CHUNKS]
+    ranked_chunks = top_candidates[:max_chunks]
 
     elapsed = time.time() - start_time
-    print(f"[OK] Ranked chunks: kept top {len(ranked_chunks)} in {elapsed:.2f}s")
+    logger.info("[RANKING] Kept top %d chunks in %.2fs", len(ranked_chunks), elapsed)
 
     timestamps = state.get("timestamps", {})
     timestamps["ranking"] = elapsed

@@ -1,16 +1,23 @@
 import time
+import logging
 from typing import Dict
 from langchain_core.messages import HumanMessage, SystemMessage
 from src.agent.core.state import ResearchState
-from src.agent.core.llm import get_llm, TOP_INSIGHTS, TOP_SOURCES
+from src.agent.core.llm import get_llm, get_depth_profile
+
+logger = logging.getLogger(__name__)
+
 
 def final_answer_node(state: ResearchState) -> Dict:
-    """
-    FINAL ANSWER NODE: Generate comprehensive final answer with sources.
-    """
-    print("\n" + "="*80)
-    print("[PHASE 8] FINAL ANSWER - Synthesizing comprehensive response")
-    print("="*80)
+    """FINAL ANSWER NODE: Generate comprehensive final answer with sources."""
+    depth = state.get("research_depth", "standard")
+    profile = get_depth_profile(depth)
+    top_insights = profile["top_insights"]
+    top_sources = profile["top_sources"]
+
+    logger.info("=" * 60)
+    logger.info("[SYNTHESIS] Generating final answer [depth=%s]", depth)
+    logger.info("=" * 60)
 
     start_time = time.time()
 
@@ -20,14 +27,12 @@ def final_answer_node(state: ResearchState) -> Dict:
     reasoning_results = state["reasoning_results"]
     search_results = state["search_results"]
 
-    # Compile key insights from reasoning results
-    insights = reasoning_results[:TOP_INSIGHTS * 2]
+    insights = reasoning_results[:top_insights * 2]
     insights_text = "\n\n".join([
         f"Insight {i+1} (relevance: {insight.get('similarity', 0):.2f}):\n{insight['content'][:500]}"
-        for i, insight in enumerate(insights[:TOP_INSIGHTS])
+        for i, insight in enumerate(insights[:top_insights])
     ])
 
-    # Collect unique sources
     unique_sources = {}
     for result in search_results:
         url = result.get("url", "")
@@ -38,9 +43,9 @@ def final_answer_node(state: ResearchState) -> Dict:
                 "snippet": result.get("content", "")[:200],
             }
 
-    sources_list = list(unique_sources.values())[:TOP_SOURCES]
+    sources_list = list(unique_sources.values())[:top_sources]
 
-    system_prompt = """You are an elite research analyst and subject matter expert. Your task is to synthesize extensive research findings into a comprehensive, well-structured final answer.
+    system_prompt = """You are an elite research analyst and subject matter expert. Synthesize extensive research findings into a comprehensive, well-structured final answer.
 
 Guidelines:
 - Provide a thorough, in-depth analysis
@@ -48,9 +53,8 @@ Guidelines:
 - Include key findings, evidence, and examples
 - Address multiple perspectives and counterarguments
 - Draw clear conclusions based on evidence
-- Cite sources throughout
+- Cite sources using [citation:X] format matching the source indices below
 - Maintain academic rigor and clarity
-- Be objective and balanced
 
 Structure your response:
 1. Executive Summary
@@ -70,20 +74,21 @@ RESEARCH INSIGHTS (from {len(reasoning_results)} reasoning queries across {len(s
 
 {insights_text}
 
+SOURCES:
+{chr(10).join([f"[{i+1}] {s['title']} - {s['url']}" for i, s in enumerate(sources_list)])}
+
 SYNTHESIZE A COMPREHENSIVE FINAL ANSWER:
 """)
     ])
 
     final_answer = response.content
 
-    # Calculate confidence score based on data quality
     confidence = min(0.95, 0.5 + (len(reasoning_results) / 1000) + (len(sources_list) / 100))
 
     elapsed = time.time() - start_time
 
-    print(f"[OK] Final answer generated in {elapsed:.2f}s")
-    print(f"[STATS] Confidence score: {confidence:.2%}")
-    print(f"[STATS] Sources referenced: {len(sources_list)}")
+    logger.info("[SYNTHESIS] Final answer generated in %.2fs", elapsed)
+    logger.info("[STATS] Confidence: %.2f%% | Sources: %d", confidence * 100, len(sources_list))
 
     timestamps = state.get("timestamps", {})
     timestamps["final_answer"] = elapsed

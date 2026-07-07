@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 - **Setup**: `uv sync`
-- **Embedding Model Setup**: `ollama pull qwen3-embeddings:8b`
+- **Embedding Model Setup**: `ollama pull qwen3-embedding:8b`
 - **Run Server**: `uv run python server.py` (Starts FastAPI server at http://localhost:8000)
 - **Run Research (CLI)**: `uv run python -m Agent.agent`
 - **Run System Tests**: `uv run python test_system.py`
@@ -20,7 +20,7 @@ The system implements a multi-stage deep research pipeline orchestrated by **Lan
 4. **Scraping**: Extracts clean content from sources.
 5. **Chunking**: Splits content into manageable segments.
 6. **Ranking**: Scores and filters chunks by relevance.
-7. **Vector DB**: Stores embeddings using Ollama (`qwen3-embeddings:8b`) and ChromaDB.
+7. **Vector DB**: Stores embeddings using Ollama (`qwen3-embedding:8b`) and ChromaDB.
 8. **Reasoning Loop**: Performs deep analysis by querying the vector database.
 9. **Final Answer**: Synthesizes the final comprehensive response with citations.
 

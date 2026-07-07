@@ -2,16 +2,18 @@ from typing import TypedDict, Annotated, List, Dict, Any, Optional, Sequence
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
+
 class ResearchState(TypedDict):
     """State for the deep research agent."""
     # Input
     user_query: str
+    research_depth: str  # "quick", "standard", or "deep"
 
     # Planning phase
-    sub_questions: List[str]  # 35 decomposed questions
+    sub_questions: List[str]  # Decomposed questions
 
     # Search phase
-    search_queries: List[str]  # Generated search queries (120+)
+    search_queries: List[str]  # Generated search queries
     search_results: List[Dict]  # All search results from Tavily
 
     # Processing phase
@@ -24,7 +26,7 @@ class ResearchState(TypedDict):
     vector_db_stats: Dict  # Vector database statistics
 
     # Reasoning phase
-    reasoning_queries: List[str]  # 120 reasoning questions for embeddings
+    reasoning_queries: List[str]  # Reasoning questions for embeddings
     reasoning_results: List[Dict]  # Results from vector DB queries
     reasoning_passes: int  # Current reasoning pass count
     max_reasoning_passes: int  # Maximum reasoning passes
